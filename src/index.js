@@ -1,7 +1,7 @@
 var http = require("http");
 var url = require('url');
 var echarts = require("echarts");
-const {createCanvas} = require("canvas");
+const {createCanvas} = require("@napi-rs/canvas");
 const args = process.argv;
 
 const mime = {
@@ -20,12 +20,12 @@ const mimeReverse = {
     svg: "image/svg+xml"
 };
 
-const port = args.port || 3000;
+const port = process.env.PORT || args.port || 3000;
 
 echarts.setPlatformAPI({
     // Same with the old setCanvasCreator
-    createCanvas() {
-        return createCanvas();
+    createCanvas(width = 600, height = 400) {
+        return createCanvas(width, height);
     }
 });
 
@@ -65,7 +65,11 @@ function processConfig(request, response, callback) {
         })
     }
 }
-
+/**
+ * renderChart 
+ * @param {*} config 
+ * @returns 
+ */
 function renderChart(config) {
     let result;
     const canvas = createCanvas(config.width, config.height);

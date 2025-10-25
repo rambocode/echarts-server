@@ -2,21 +2,35 @@
   "name": "echarts-export-server",
   "version": "1.0.1",
   "description": "Apache ECharts HTTP Export Server",
-  "main": "src/index.js",
+  "main": "src/server.js",
   "scripts": {
-    "start": "pm2 start ./src/index.js --name echarts-export-server",
+    "start": "pm2 start ./src/server.js --name echarts-export-server",
     "stop": "pm2 stop echarts-export-server",
+    "restart": "pm2 restart echarts-export-server",
+    "reload": "pm2 reload echarts-export-server",
     "logs": "pm2 logs echarts-export-server",
     "status": "pm2 list",
     "show": "pm2 show echarts-export-server",
     "delete": "pm2 delete echarts-export-server",
-    "foreground": "node ./src/index.js",
-    "dev": "nodemon ./src/index.js"
+    "foreground": "node ./src/server.js",
+    "dev": "nodemon ./src/server.js",
+    "legacy": "node ./src/index.js",
+    "test": "node test/run-tests.js",
+    "test:watch": "nodemon --exec \"npm test\"",
+    "validate-config": "node scripts/validate-config.js",
+    "setup": "node scripts/setup.js",
+    "health-check": "node scripts/health-check.js"
   },
   "dependencies": {
-    "canvas": "2.7.0",
+    "@napi-rs/canvas": "^0.1.80",
+    "ali-oss": "^6.17.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
     "echarts": "5.3.3",
-    "pm2": "5.2.0"
+    "express": "^4.18.2",
+    "pm2": "5.2.0",
+    "uuid": "^9.0.0",
+    "winston": "^3.8.2"
   },
   "devDependencies": {
     "nodemon": "1.18.4"

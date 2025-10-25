@@ -1,281 +1,636 @@
-# Apache ECharts HTTP Export Server
+# Apache ECharts 异步导出服务器
 
-This is a Node.js-based service, and uses [node canvas](https://github.com/Automattic/node-canvas) to render [Apache ECharts](https://echarts.apache.org/) charts to images (PNG, JPG, SVG , PDF and Base64) to be sent back to the user.
+基于 Node.js 的高性能异步图表导出服务，支持将 [Apache ECharts](https://echarts.apache.org/) 图表渲染为图片（PNG、JPG、SVG、PDF）并自动上传到阿里云 OSS 存储。
 
-## What
+## ✨ 特性
 
-The export server is a Node.js-based service, which is easy to install and integrate on any system. It accepts either JSON-formatted chart options or SVGs, together with additional resources, and uses [node canvas](https://github.com/Automattic/node-canvas) to render [Apache ECharts](https://echarts.apache.org/) charts to images (PNG, JPG, SVG , PDF and Base64) to be sent back to the user.
+- 🚀 **异步处理**: 支持异步任务队列，提高并发处理能力
+- ☁️ **云存储集成**: 自动上传图片到阿里云 OSS，提供稳定的访问链接
+- 🔄 **向后兼容**: 完全兼容原有同步 API，无缝升级
+- 📊 **任务管理**: 实时查询任务状态和处理进度
+- 🛡️ **错误处理**: 完善的错误处理和重试机制
+- 📈 **监控支持**: 内置性能监控和日志系统
+- ⚙️ **灵活配置**: 支持环境变量配置，适应不同部署环境
 
-The application can be used either as a CLI (Command Line Interface), as an HTTP server, or as a node.js module.
+## 🏗️ 架构概述
 
-## Install
+新版本采用异步架构，将图表生成任务放入队列处理，支持高并发请求：
 
-First, make sure you have node.js installed. Go to [nodejs.org](https://nodejs.org/en/download/) and download/install node for your platform.
+```
+客户端请求 → Express服务器 → 任务队列 → 图片生成器 → OSS上传 → 返回图片URL
+```
 
-The minimum version of Node.js required is **12.0.0**.
+## 📋 系统要求
 
-After node.js is installed, install the export server by opening a terminal and typing:
+- **Node.js**: >= 12.0.0
+- **内存**: 建议 >= 1GB
+- **CPU**: 多核心处理器（推荐）
+- **存储**: 根据使用量确定
+- **网络**: 如使用 OSS 需要稳定的网络连接
 
-```shell
+## 🚀 快速开始
+
+### 1. 安装
+
+确保已安装 Node.js (>= 12.0.0)，然后克隆项目并安装依赖：
+
+```bash
 git clone https://github.com/xiaomaigou/echarts-export-server
 cd echarts-export-server
 npm install
 
-# OR
-# 项目依赖canvas，由于canvas 二进制文件默认通过github下载，可能下载较慢，通过npm参数指定该模块的二进制文件下载镜像地址
+# 如果 canvas 下载较慢，可使用国内镜像
 npm install --unsafe-perm --canvas_binary_host_mirror=https://registry.npmmirror.com/-/binary/canvas/
-
-# Installation: Fedora and other RPM based distributions
-# yum install gcc-c++ cairo-devel libjpeg-turbo-devel pango-devel giflib-devel
 ```
 
-## Running
+### 2. 配置
 
-```shell
-# Running as a daemon
+运行设置向导创建配置文件：
+
+```bash
+npm run setup
+```
+
+或者手动复制并编辑配置文件：
+
+```bash
+cp .env.example .env
+# 编辑 .env 文件，配置必要的参数
+```
+
+### 3. 验证配置
+
+```bash
+npm run validate-config
+```
+
+### 4. 启动服务
+
+```bash
+# 开发模式（自动重启）
+npm run dev
+
+# 生产模式（PM2 守护进程）
 npm start
-npm stop
-npm restart
 
-# status
-npm run status
+# 前台运行（查看日志）
+npm run foreground
+```
+
+## 📖 API 文档
+
+### 异步 API（推荐）
+
+#### 1. 提交图片生成任务
+
+```http
+POST /api/charts/generate
+Content-Type: application/json
+
+{
+  "type": "png",
+  "width": 600,
+  "height": 400,
+  "option": {
+    // ECharts 配置对象
+  },
+  "ossPath": "charts/2024/01/"  // 可选：OSS路径前缀
+}
+```
+
+**响应：**
+```json
+{
+  "code": 200,
+  "msg": "Task created successfully",
+  "data": {
+    "taskId": "uuid-v4-string",
+    "status": "pending",
+    "statusUrl": "/api/charts/status/{taskId}"
+  }
+}
+```
+
+#### 2. 查询任务状态
+
+```http
+GET /api/charts/status/{taskId}
+```
+
+**响应：**
+```json
+{
+  "code": 200,
+  "msg": "success",
+  "data": {
+    "taskId": "uuid-v4-string",
+    "status": "completed",
+    "imageUrl": "https://your-bucket.oss-region.aliyuncs.com/path/to/image.png",
+    "createdAt": "2024-01-01T00:00:00Z",
+    "completedAt": "2024-01-01T00:00:05Z"
+  }
+}
+```
+
+**任务状态说明：**
+- `pending`: 等待处理
+- `processing`: 正在处理
+- `completed`: 已完成
+- `failed`: 处理失败
+
+#### 3. 查询系统状态
+
+```http
+GET /api/system/queue-status
+```
+
+**响应：**
+```json
+{
+  "code": 200,
+  "msg": "success",
+  "data": {
+    "pendingTasks": 5,
+    "processingTasks": 2,
+    "totalProcessed": 1000,
+    "averageProcessingTime": 2.5
+  }
+}
+```
+
+### 同步 API（兼容模式）
+
+为保持向后兼容，原有的同步 API 仍然可用：
+
+```http
+POST /
+Content-Type: application/json
+
+{
+  "type": "png",
+  "width": 600,
+  "height": 400,
+  "async": false,  // 显式指定同步模式
+  "option": {
+    // ECharts 配置对象
+  }
+}
+```
+
+
+
+## ⚙️ 配置说明
+
+### 环境变量配置
+
+| 变量名 | 说明 | 默认值 | 必需 |
+|--------|------|--------|------|
+| `PORT` | 服务器端口 | 3000 | 否 |
+| `NODE_ENV` | 运行环境 | development | 否 |
+| `OSS_ACCESS_KEY_ID` | OSS访问密钥ID | - | 否* |
+| `OSS_ACCESS_KEY_SECRET` | OSS访问密钥Secret | - | 否* |
+| `OSS_BUCKET` | OSS存储桶名称 | - | 否* |
+| `OSS_REGION` | OSS区域 | oss-cn-hangzhou | 否 |
+| `OSS_CUSTOM_DOMAIN` | 自定义域名 | - | 否 |
+| `OSS_PATH_PREFIX` | 文件路径前缀 | charts/ | 否 |
+| `QUEUE_MAX_CONCURRENT` | 最大并发任务数 | 10 | 否 |
+| `QUEUE_TASK_TIMEOUT` | 任务超时时间(秒) | 300 | 否 |
+| `TASK_RETENTION_DAYS` | 任务保留天数 | 7 | 否 |
+
+*注：OSS配置为可选，如不配置将使用本地存储*
+
+### 配置示例
+
+```bash
+# 基本配置
+PORT=3000
+NODE_ENV=production
+
+# OSS配置（可选）
+OSS_ACCESS_KEY_ID=your_access_key_id
+OSS_ACCESS_KEY_SECRET=your_access_key_secret
+OSS_BUCKET=your_bucket_name
+OSS_REGION=oss-cn-hangzhou
+OSS_PATH_PREFIX=charts/
+
+# 队列配置
+QUEUE_MAX_CONCURRENT=10
+QUEUE_TASK_TIMEOUT=300
+TASK_RETENTION_DAYS=7
+```
+
+## 🔧 运维管理
+
+### 常用命令
+
+```bash
+# 服务管理
+npm start          # 启动服务（PM2守护进程）
+npm stop           # 停止服务
+npm restart        # 重启服务
+npm run status     # 查看服务状态
+npm run logs       # 查看日志
+
+# 开发调试
+npm run dev        # 开发模式启动
+npm run foreground # 前台运行
+npm test           # 运行测试
+
+# 配置管理
+npm run setup           # 运行设置向导
+npm run validate-config # 验证配置
+npm run health-check    # 健康检查
+```
+
+### 监控和日志
+
+服务提供多种监控方式：
+
+1. **健康检查端点**: `GET /api/system/queue-status`
+2. **日志文件**: `logs/combined.log`, `logs/error.log`
+3. **PM2 监控**: `npm run status`, `npm run logs`
+4. **配置验证**: `npm run validate-config`
+
+### 性能优化建议
+
+1. **并发设置**: 根据服务器性能调整 `QUEUE_MAX_CONCURRENT`
+2. **内存管理**: 定期清理过期任务，设置合理的 `TASK_RETENTION_DAYS`
+3. **OSS配置**: 使用 CDN 加速图片访问
+4. **负载均衡**: 高并发场景下可部署多个实例
+
+## 📚 迁移指南
+
+### 从同步版本升级
+
+如果您正在使用旧版本的同步 API，可以按以下步骤升级：
+
+#### 1. 保持现有代码不变（推荐）
+
+新版本完全兼容原有 API，无需修改现有代码：
+
+```javascript
+// 原有代码继续工作
+const response = await fetch('/api/charts/generate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    type: 'png',
+    width: 600,
+    height: 400,
+    option: chartOption
+  })
+});
+```
+
+#### 2. 逐步迁移到异步 API（推荐）
+
+```javascript
+// 新的异步 API
+// 1. 提交任务
+const taskResponse = await fetch('/api/charts/generate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    type: 'png',
+    width: 600,
+    height: 400,
+    option: chartOption
+  })
+});
+const { taskId } = taskResponse.data;
+
+// 2. 轮询任务状态
+const checkStatus = async () => {
+  const statusResponse = await fetch(`/api/charts/status/${taskId}`);
+  const { status, imageUrl } = statusResponse.data;
+  
+  if (status === 'completed') {
+    return imageUrl;
+  } else if (status === 'failed') {
+    throw new Error('Task failed');
+  } else {
+    // 继续轮询
+    setTimeout(checkStatus, 1000);
+  }
+};
+
+const imageUrl = await checkStatus();
+```
+
+### 配置迁移
+
+1. **备份现有配置**
+2. **运行设置向导**: `npm run setup`
+3. **验证新配置**: `npm run validate-config`
+4. **测试服务**: `npm run health-check`
+
+## 🛠️ 字体安装
+
+ECharts 使用系统字体渲染图表，请根据操作系统安装所需字体：
+
+### Linux
+```bash
+# 安装中文字体（解决中文乱码）
+mkdir -p /usr/share/fonts/truetype
+cp msyh.ttf /usr/share/fonts/truetype/  # 微软雅黑
+fc-cache -fv
+
+# 安装系统依赖（CentOS/RHEL）
+yum install gcc-c++ cairo-devel libjpeg-turbo-devel pango-devel giflib-devel
+```
+
+### macOS
+```bash
+# 使用 Font Book 应用安装，或复制到字体目录
+cp yourFont.ttf ~/Library/Fonts/
+```
+
+### Windows
+```bash
+# 复制字体文件到系统字体目录
+copy yourFont.ttf C:\Windows\Fonts\
+```
+
+## 💡 使用示例
+
+### 异步 API 示例
+
+#### JavaScript/Node.js
+
+```javascript
+const axios = require('axios');
+
+async function generateChart() {
+  // 1. 提交任务
+  const taskResponse = await axios.post('http://localhost:3000/api/charts/generate', {
+    type: 'png',
+    width: 800,
+    height: 600,
+    option: {
+      backgroundColor: '#fff',
+      animation: false,
+      xAxis: {
+        type: 'category',
+        data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+      },
+      yAxis: {
+        type: 'value'
+      },
+      series: [{
+        data: [820, 932, 901, 934, 1290, 1330, 1720],
+        type: 'line',
+        label: { show: true }
+      }]
+    }
+  });
+
+  const { taskId } = taskResponse.data.data;
+  console.log('任务已提交:', taskId);
+
+  // 2. 轮询任务状态
+  while (true) {
+    const statusResponse = await axios.get(`http://localhost:3000/api/charts/status/${taskId}`);
+    const { status, imageUrl, error } = statusResponse.data.data;
+
+    if (status === 'completed') {
+      console.log('图片生成完成:', imageUrl);
+      return imageUrl;
+    } else if (status === 'failed') {
+      throw new Error(`任务失败: ${error}`);
+    } else {
+      console.log('任务状态:', status);
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
+    }
+  }
+}
+
+generateChart().catch(console.error);
+```
+
+#### cURL 示例
+
+```bash
+# 1. 提交任务
+TASK_ID=$(curl -s -H "Content-Type: application/json" \
+  -X POST http://localhost:3000/api/charts/generate \
+  -d '{
+    "type": "png",
+    "width": 600,
+    "height": 400,
+    "option": {
+      "backgroundColor": "#fff",
+      "xAxis": {
+        "type": "category",
+        "data": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      },
+      "yAxis": {
+        "type": "value"
+      },
+      "series": [{
+        "data": [820, 932, 901, 934, 1290, 1330, 1720],
+        "type": "line"
+      }]
+    }
+  }' | jq -r '.data.taskId')
+
+echo "任务ID: $TASK_ID"
+
+# 2. 查询任务状态
+curl -s http://localhost:3000/api/charts/status/$TASK_ID | jq '.'
+```
+
+### 同步 API 示例（兼容模式）
+
+```bash
+# 直接获取图片（同步模式）
+curl -H "Content-Type: application/json" \
+  -X POST http://localhost:3000/ \
+  -o chart.png \
+  -d '{
+    "type": "png",
+    "width": 600,
+    "height": 400,
+    "async": false,
+    "option": {
+      "backgroundColor": "#fff",
+      "xAxis": {
+        "type": "category",
+        "data": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      },
+      "yAxis": {
+        "type": "value"
+      },
+      "series": [{
+        "data": [820, 932, 901, 934, 1290, 1330, 1720],
+        "type": "line"
+      }]
+    }
+  }'
+```
+
+### Java 客户端示例
+
+使用 [ECharts Java](https://github.com/ECharts-Java/ECharts-Java) 生成图表配置：
+
+```java
+import com.github.abel533.echarts.Bar;
+import com.github.abel533.echarts.Engine;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class EChartsExportClient {
+    private static final String SERVER_URL = "http://localhost:3000";
+    private static final HttpClient client = HttpClient.newHttpClient();
+    private static final ObjectMapper mapper = new ObjectMapper();
+
+    public static void main(String[] args) throws Exception {
+        // 1. 创建图表配置
+        Bar bar = new Bar()
+            .setLegend()
+            .setTooltip("item")
+            .addXAxis(new String[] { "Matcha Latte", "Milk Tea", "Cheese Cocoa", "Walnut Brownie" })
+            .addYAxis()
+            .addSeries("2015", new Number[] { 43.3, 83.1, 86.4, 72.4 })
+            .addSeries("2016", new Number[] { 85.8, 73.4, 65.2, 53.9 })
+            .addSeries("2017", new Number[] { 93.7, 55.1, 82.5, 39.1 });
+
+        Engine engine = new Engine();
+        String optionJson = engine.renderJsonOption(bar);
+
+        // 2. 提交异步任务
+        String taskId = submitTask(optionJson);
+        System.out.println("任务已提交: " + taskId);
+
+        // 3. 轮询任务状态
+        String imageUrl = waitForCompletion(taskId);
+        System.out.println("图片生成完成: " + imageUrl);
+    }
+
+    private static String submitTask(String optionJson) throws Exception {
+        String requestBody = String.format("""
+            {
+                "type": "png",
+                "width": 800,
+                "height": 600,
+                "option": %s
+            }
+            """, optionJson);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(SERVER_URL + "/api/charts/generate"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        // 解析响应获取 taskId
+        // ... 省略 JSON 解析代码
+        return taskId;
+    }
+
+    private static String waitForCompletion(String taskId) throws Exception {
+        while (true) {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(SERVER_URL + "/api/charts/status/" + taskId))
+                .GET()
+                .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            // 解析响应检查状态
+            // ... 省略状态检查逻辑
+            
+            Thread.sleep(1000); // 等待1秒后重试
+        }
+    }
+}
+```
+
+## 🔍 故障排除
+
+### 常见问题
+
+1. **服务启动失败**
+   ```bash
+   npm run validate-config  # 检查配置
+   npm run logs             # 查看错误日志
+   ```
+
+2. **OSS 上传失败**
+   - 检查 OSS 配置是否正确
+   - 验证网络连接和权限设置
+   - 查看错误日志获取详细信息
+
+3. **任务处理缓慢**
+   - 调整 `QUEUE_MAX_CONCURRENT` 参数
+   - 检查服务器资源使用情况
+   - 考虑增加服务器配置
+
+4. **中文字体显示异常**
+   ```bash
+   # Linux 系统安装中文字体
+   mkdir -p /usr/share/fonts/truetype
+   cp msyh.ttf /usr/share/fonts/truetype/
+   fc-cache -fv
+   ```
+
+### 日志分析
+
+```bash
+# 查看实时日志
 npm run logs
 
-# Running in the foreground, prints its logs to the standard output (stdout), and can be stopped by pressing Ctrl-C.
-npm run foreground
-# dev
+# 查看错误日志
+tail -f logs/error.log
+
+# 查看完整日志
+tail -f logs/combined.log
+```
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+### 开发环境设置
+
+```bash
+git clone https://github.com/xiaomaigou/echarts-export-server
+cd echarts-export-server
+npm install
+npm run setup
 npm run dev
 ```
 
-## Command Line Arguments
+### 运行测试
 
-**General options**
-
-**Server related options**
-
-  * `--host`: The hostname to run the server on.
-  * `--port`: The port to listen for incoming requests on. Defaults to `3000`.
-
-*`-` and `--` can be used interchangeably when using the CLI.*
-
-
-
-## HTTP Server
-
-The server accepts the following arguments:
-
-  * `type`: The format: `png`, `jpeg`, `pdf`, `svg`. Mimetypes can also be used.Defaults to `png`.
-  * `width`: The chart width. Defaults to `600`.
-  * `height`: The chart height. Defaults to `400`.
-  * `base64`: Bool, set to true to get base64 back instead of binary.Defaults to `false`.
-  * `download`: Bool, set to true to send attachment headers on the response.Defaults to `false`.
-  * `option`: A JSON object with options to be passed to `ECharts.setOption(..)`.
-
-It responds to `application/json`, `Mimetypes`, and URL encoded requests.
-
-CORS is enabled for the server.
-
-It's to run the server using [pm2](https://www.npmjs.com/package/pm2). Please refer to the pm2 documentation for details on how to set this up.
-
-### System Requirements
-
-The system requirements largely depend on your use case.
-
-It's largely CPU and memory bound, so when using in heavy-traffic situations,
-it needs a fairly beefy server. It's recommended that the server has at least 1GB
-of memory regardless of traffic, and more than one core.
-
-### Installing Fonts
-
-Does your Linux server not have Arial or Calibri? ECharts uses the system installed fonts to render pages. Therefore the ECharts Export Server requires fonts to be properly installed on the system in order to use them to render charts.
-
-Fonts are installed differently depending on your system. Please follow the below guides for font installation on most common systems.
-
-#### OS X
-Install your desired fonts with the Font Book app, or place it in /Library/Fonts/ (system) or ~/Library/Fonts/ (user)
-
-#### Linux
-Copy or move the TTF file to the `/usr/share/fonts/truetype` (may require sudo privileges):
-```
-mkdir -p /usr/share/fonts/truetype
-cp yourFont.ttf /usr/share/fonts/truetype/
-fc-cache -fv
+```bash
+npm test                # 运行所有测试
+npm run test:watch      # 监视模式运行测试
 ```
 
-#### Windows
-Copy or move the TTF file to `C:\Windows\Fonts\`:
-```
-copy yourFont.ttf C:\Windows\Fonts\yourFont.ttf
-```
-### Google fonts
+## 📄 许可证
 
-If you need Google Fonts in your custom installation, they can be had here:
-https://github.com/google/fonts
+[Apache License 2.0](LICENSE)
 
-Download them, and follow the above instructions for your OS.
+## 🔗 相关链接
 
-### 中文乱码
+- [Apache ECharts](https://echarts.apache.org/) - 图表库
+- [Node Canvas](https://github.com/Automattic/node-canvas) - 服务端渲染
+- [阿里云 OSS](https://www.aliyun.com/product/oss) - 对象存储服务
+- [PM2](https://pm2.keymetrics.io/) - 进程管理器
+- [ECharts Java](https://github.com/ECharts-Java/ECharts-Java) - Java 客户端
 
-直接将Windows的C:\Windows\Fonts\msyh.ttc文件(微软雅黑)拷贝到以下目录，重启生效。
+## 📞 支持
 
-```shell
-mkdir -p /usr/share/fonts/truetype
-cp msyh.ttf /usr/share/fonts/truetype/
-```
+如果您在使用过程中遇到问题，可以通过以下方式获取帮助：
 
-## Server Example
+1. 查看 [FAQ 文档](docs/FAQ.md)
+2. 提交 [GitHub Issue](https://github.com/xiaomaigou/echarts-export-server/issues)
+3. 查看项目 [Wiki](https://github.com/xiaomaigou/echarts-export-server/wiki)
 
-### Request Parameter Format
+---
 
-```json
-{
-  "type": "png",
-  "width": 600,
-  "height": 400,
-  "base64": false,
-  "download": false,
-  "option": {
-    "backgroundColor": "#fff",
-    "animation": false,
-    "xAxis": {
-      "type": "category",
-      "data": [
-        "Mon",
-        "Tue",
-        "Wed",
-        "Thu",
-        "Fri",
-        "Sat",
-        "Sun"
-      ]
-    },
-    "yAxis": {
-      "type": "value"
-    },
-    "series": [
-      {
-        "data": [
-          820,
-          932,
-          901,
-          934,
-          1290,
-          1330,
-          1720
-        ],
-        "type": "line",
-        "label": {
-          "show": true
-        }
-      }
-    ]
-  }
-}
-```
-
-### GET Request
-
-```html
-http://localhost:3000/?config=%7B%22width%22%3A800%2C%22height%22%3A500%2C%22option%22%3A%7B%22backgroundColor%22%3A%22%23fff%22%2C%22xAxis%22%3A%7B%22type%22%3A%22category%22%2C%22data%22%3A%5B%22Mon%22%2C%22Tue%22%2C%22Wed%22%2C%22Thu%22%2C%22Fri%22%2C%22Sat%22%2C%22Sun%22%5D%7D%2C%22yAxis%22%3A%7B%22type%22%3A%22value%22%7D%2C%22series%22%3A%5B%7B%22data%22%3A%5B820%2C932%2C901%2C934%2C1290%2C1330%2C1320%5D%2C%22type%22%3A%22line%22%7D%5D%7D%7D
-```
-
-### POST Request
-
-```sh
-# Generate a chart and save it to chart.png
-curl -H "Content-Type: application/json" \
--X POST localhost:3000 \
--o chart.png \
--d '{
-  "type": "png",
-  "width": 600,
-  "height": 400,
-  "base64": false,
-  "download": false,
-  "option": {
-    "backgroundColor": "#fff",
-    "animation": false,
-    "xAxis": {
-      "type": "category",
-      "data": [
-        "Mon",
-        "Tue",
-        "Wed",
-        "Thu",
-        "Fri",
-        "Sat",
-        "Sun"
-      ]
-    },
-    "yAxis": {
-      "type": "value"
-    },
-    "series": [
-      {
-        "data": [
-          820,
-          932,
-          901,
-          934,
-          1290,
-          1330,
-          1720
-        ],
-        "type": "line",
-        "label": {
-          "show": true
-        }
-      }
-    ]
-  }
-}'
-```
-
-### ECharts Java Client
-
-It's recommended to create an `Option` object and its Json representation in chainable Java codes using [ECharts Java](https://github.com/ECharts-Java/ECharts-Java) . Please refer to the ECharts Java documentation for details on how to set this up.
-
-```java
-public static void main(String[] args) {
-    // All methods in ECharts Java supports method chaining
-    Bar bar = new Bar()
-        .setLegend()
-        .setTooltip("item")
-        .addXAxis(new String[] { "Matcha Latte", "Milk Tea", "Cheese Cocoa", "Walnut Brownie" })
-        .addYAxis()
-        .addSeries("2015", new Number[] { 43.3, 83.1, 86.4, 72.4 })
-        .addSeries("2016", new Number[] { 85.8, 73.4, 65.2, 53.9 })
-        .addSeries("2017", new Number[] { 93.7, 55.1, 82.5, 39.1 });
-    Engine engine = new Engine();
-	// The renderJsonOption method will return a string, which represents an Option object in JSON format.
-	String optionJsonString = engine.renderJsonOption(line);
-    System.out.println(optionJsonString);
-}
-```
-
-### Base64 Response Format
-
-```json
-{
-    "code": 200,
-    "msg": "success",
-    "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA..."
-}
-```
-
-## Reference
-
-[Apache ECharts Server Side Rendering](https://echarts.apache.org/handbook/en/how-to/cross-platform/server/)
-
-[Node canvas](https://github.com/Automattic/node-canvas)
-
-[Highcharts Node.js Export Server](https://github.com/highcharts/node-export-server)
-
-[PM2](https://www.npmjs.com/package/pm2)
-
-[ECharts Java](https://github.com/ECharts-Java/ECharts-Java) 
-
-## License
-
-[Apache License 2.0](LICENSE).
+⭐ 如果这个项目对您有帮助，请给我们一个 Star！
 
